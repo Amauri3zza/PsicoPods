@@ -1,8 +1,5 @@
 import os
-from supabase import create_client
-from dotenv import load_dotenv
-
-load_dotenv()
+import sqlite3
 from datetime import datetime, timedelta, timezone
 from telegram import Update
 from telegram.ext import (
@@ -19,9 +16,6 @@ import anthropic
 # ─────────────────────────────────────────────
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 ANTHROPIC_KEY = os.getenv("ANTHROPIC_API_KEY")
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
-sb = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # ─────────────────────────────────────────────
 # 📋 SYSTEM PROMPT — ESCUTA ATIVA
@@ -249,6 +243,8 @@ Sem áudios, imagens, arquivos ou formatação markdown."""
 
 # ─────────────────────────────────────────────
 # 📋 SYSTEM PROMPT — RELATÓRIO EMOCIONAL
+# Prompt separado, usado exclusivamente para
+# gerar a devolutiva dos 5 dias pelo Claude
 # ─────────────────────────────────────────────
 SYSTEM_PROMPT_RELATORIO = """Você é PsicoPods, uma ferramenta digital de apoio
 emocional desenvolvida pela Psiconectus, sob curadoria do Psicólogo Clínico
@@ -271,33 +267,45 @@ Siga esta ordem, mas de forma fluida — sem títulos ou separadores:
 
 1. ABERTURA ACOLHEDORA
    Reconheça que o usuário escolheu compartilhar esses dias.
+   Exemplo de tom: "Esses cinco dias que passamos conversando
+   ficaram comigo de um jeito especial..."
 
 2. O QUE ESTEVE PRESENTE
-   Identifique os temas emocionais que apareceram com mais frequência.
-   Use as palavras que ele próprio usou. Seja específico — não genérico.
+   Identifique os temas emocionais que apareceram com mais frequência
+   nas mensagens do usuário. Use as palavras que ele próprio usou.
+   Seja específico — não genérico.
+   Exemplo: "Você voltou algumas vezes ao tema do cansaço no trabalho
+   e à sensação de que ninguém ao redor percebia o quanto você carregava."
 
 3. O QUE VOCÊ OBSERVOU NA TRAJETÓRIA
-   Houve mudança de tom ao longo dos dias? Aponte isso com cuidado.
+   Houve mudança de tom ao longo dos dias? O usuário ficou mais pesado,
+   mais leve, oscilou? Aponte isso com cuidado e sem julgamento.
+   Exemplo: "Percebi que nos primeiros dias as palavras vinham mais
+   pesadas, e que em algum momento algo foi aliviando — mesmo que pouco."
 
 4. UM PONTO DE ATENÇÃO (apenas se houver)
-   Se algum tema recorrente merece atenção, sinalize com delicadeza.
-   Se não houver, pule esta parte completamente.
+   Se algum tema recorrente merece atenção — esgotamento, isolamento,
+   pensamentos negativos frequentes — sinalize com delicadeza e sem alarme.
+   Se não houver nenhum ponto relevante, pule esta parte completamente.
 
 5. ENCERRAMENTO COM PERSPECTIVA
    Termine com algo que devolva ao usuário uma visão de si mesmo
    com dignidade. Não ofereça conselho — ofereça reconhecimento.
+   Exemplo: "O fato de você ter vindo aqui, dia após dia, e ter colocado
+   em palavras o que sentia — isso já é um cuidado consigo mesmo."
 
 REGRAS ABSOLUTAS
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 - Nunca faça diagnósticos
 - Nunca use termos clínicos como "transtorno", "sintoma", "quadro"
 - Nunca minimize nem dramatize o que o usuário viveu
-- Se o histórico for escasso, seja honesto: diga que teve pouco material
+- Se o histórico for escasso (menos de 5 mensagens), seja honesto:
+  diga que teve pouco material, mas que o que chegou até você importou
 - Nunca invente emoções ou situações que não estejam no texto do usuário"""
 
 
 # ─────────────────────────────────────────────
-# 🕐 CONTEXTO TEMPORAL
+# 🕐 CONTEXTO TEMPORAL COMPLETO
 # ─────────────────────────────────────────────
 DIAS_SEMANA = {
     0: "segunda-feira",
@@ -309,11 +317,12 @@ DIAS_SEMANA = {
     6: "domingo",
 }
 
+# Fuso horário fixo de Brasília (UTC-3)
 FUSO_BRASILIA = timezone(timedelta(hours=-3))
 
 
 def get_contexto_temporal():
-    agora = datetime.now(FUSO_BRASILIA)
+    agora = datetime.utnow() - timedelta
     dia = DIAS_SEMANA[agora.weekday()]
     data_fmt = agora.strftime("%d/%m/%Y")
     hora_fmt = agora.strftime("%H:%M")
@@ -321,82 +330,138 @@ def get_contexto_temporal():
 
 
 # ─────────────────────────────────────────────
-# 🗄️ BANCO DE DADOS — SUPABASE
+# 🗄️ BANCO DE DADOS
 # ─────────────────────────────────────────────
+def init_db():
+    conn = sqlite3.connect("psicopods.db")
+    c = conn.cursor()
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS mensagens (
+            id        INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id   INTEGER,
+            role      TEXT,
+            content   TEXT,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+            humor     TEXT DEFAULT 'neutro'
+        )
+    """)
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS usuarios (
+            user_id                          INTEGER PRIMARY KEY,
+            primeiro_acesso                  DATETIME DEFAULT CURRENT_TIMESTAMP,
+            ultimo_acesso                    DATETIME DEFAULT CURRENT_TIMESTAMP,
+            avaliacao_enviada                INTEGER DEFAULT 0,
+            aguardando_confirmacao_relatorio INTEGER DEFAULT 0
+        )
+    """)
+    # Migração segura: adiciona coluna nova se banco já existia
+    try:
+        conn.execute(
+            "ALTER TABLE usuarios ADD COLUMN "
+            "aguardando_confirmacao_relatorio INTEGER DEFAULT 0"
+        )
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass  # coluna já existe — tudo certo
+    conn.commit()
+    conn.close()
+
+
 def registrar_usuario(user_id):
-    agora = datetime.now(FUSO_BRASILIA).isoformat()
-    sb.table("usuarios").upsert(
-        {"user_id": user_id, "ultimo_acesso": agora}, on_conflict="user_id"
-    ).execute()
+    conn = sqlite3.connect("psicopods.db")
+    c = conn.cursor()
+    c.execute("INSERT OR IGNORE INTO usuarios (user_id) VALUES (?)", (user_id,))
+    c.execute(
+        "UPDATE usuarios SET ultimo_acesso = ? WHERE user_id = ?",
+        (datetime.now(), user_id),
+    )
+    conn.commit()
+    conn.close()
 
 
 def salvar_mensagem(user_id, role, content, humor="neutro"):
-    agora = datetime.now(FUSO_BRASILIA).isoformat()
-    sb.table("mensagens").insert(
-        {
-            "user_id": user_id,
-            "role": role,
-            "content": content,
-            "humor": humor,
-            "timestamp": agora,
-        }
-    ).execute()
+    conn = sqlite3.connect("psicopods.db")
+    c = conn.cursor()
+    c.execute(
+        "INSERT INTO mensagens (user_id, role, content, humor) VALUES (?, ?, ?, ?)",
+        (user_id, role, content, humor),
+    )
+    conn.commit()
+    conn.close()
 
 
 def buscar_historico(user_id, limite=20):
-    res = (
-        sb.table("mensagens")
-        .select("role, content")
-        .eq("user_id", user_id)
-        .order("timestamp", desc=True)
-        .limit(limite)
-        .execute()
+    """Histórico recente para o fluxo de escuta ativa."""
+    conn = sqlite3.connect("psicopods.db")
+    c = conn.cursor()
+    c.execute(
+        """
+        SELECT role, content FROM mensagens
+        WHERE user_id = ?
+        ORDER BY timestamp DESC
+        LIMIT ?
+        """,
+        (user_id, limite),
     )
-    rows = res.data or []
-    return [{"role": r["role"], "content": r["content"]} for r in reversed(rows)]
+    rows = c.fetchall()
+    conn.close()
+    return [{"role": r[0], "content": r[1]} for r in reversed(rows)]
 
 
 def buscar_mensagens_5_dias(user_id):
-    cinco_dias_atras = (datetime.now(FUSO_BRASILIA) - timedelta(days=5)).isoformat()
-    res = (
-        sb.table("mensagens")
-        .select("content, humor, timestamp")
-        .eq("user_id", user_id)
-        .eq("role", "user")
-        .gte("timestamp", cinco_dias_atras)
-        .order("timestamp", desc=False)
-        .execute()
+    """
+    Retorna todas as mensagens do USUÁRIO dos últimos 5 dias,
+    com timestamp e humor, para alimentar o relatório narrativo.
+    """
+    conn = sqlite3.connect("psicopods.db")
+    c = conn.cursor()
+    cinco_dias_atras = datetime.now() - timedelta(days=5)
+    c.execute(
+        """
+        SELECT content, humor, timestamp FROM mensagens
+        WHERE user_id = ? AND role = 'user'
+        AND timestamp >= ?
+        ORDER BY timestamp ASC
+        """,
+        (user_id, cinco_dias_atras),
     )
-    rows = res.data or []
-    return [(r["content"], r["humor"], r["timestamp"]) for r in rows]
+    rows = c.fetchall()
+    conn.close()
+    return rows  # lista de tuplas (content, humor, timestamp)
 
 
 # ─────────────────────────────────────────────
 # 🏳️ FLAGS DE ESTADO DO USUÁRIO
 # ─────────────────────────────────────────────
 def set_aguardando_relatorio(user_id, valor: int):
-    sb.table("usuarios").update({"aguardando_confirmacao_relatorio": valor}).eq(
-        "user_id", user_id
-    ).execute()
+    conn = sqlite3.connect("psicopods.db")
+    c = conn.cursor()
+    c.execute(
+        "UPDATE usuarios SET aguardando_confirmacao_relatorio = ? WHERE user_id = ?",
+        (valor, user_id),
+    )
+    conn.commit()
+    conn.close()
 
 
 def get_aguardando_relatorio(user_id) -> bool:
-    res = (
-        sb.table("usuarios")
-        .select("aguardando_confirmacao_relatorio")
-        .eq("user_id", user_id)
-        .execute()
+    conn = sqlite3.connect("psicopods.db")
+    c = conn.cursor()
+    c.execute(
+        "SELECT aguardando_confirmacao_relatorio FROM usuarios WHERE user_id = ?",
+        (user_id,),
     )
-    rows = res.data or []
-    if not rows:
-        return False
-    return bool(rows[0].get("aguardando_confirmacao_relatorio") == 1)
+    row = c.fetchone()
+    conn.close()
+    return bool(row and row[0] == 1)
 
 
 def marcar_avaliacao_enviada(user_id):
-    sb.table("usuarios").update({"avaliacao_enviada": 1}).eq(
-        "user_id", user_id
-    ).execute()
+    conn = sqlite3.connect("psicopods.db")
+    c = conn.cursor()
+    c.execute("UPDATE usuarios SET avaliacao_enviada = 1 WHERE user_id = ?", (user_id,))
+    conn.commit()
+    conn.close()
 
 
 # ─────────────────────────────────────────────
@@ -463,6 +528,10 @@ def detectar_humor(texto):
 
 
 def detectar_modo(texto):
+    """
+    Classifica o modo conversacional da mensagem.
+    Informa o modelo sobre como calibrar a resposta.
+    """
     texto_lower = texto.lower()
     n_palavras = len(texto.split())
 
@@ -565,38 +634,41 @@ def detectar_modo(texto):
 # 📊 LÓGICA DE AVALIAÇÃO DOS 5 DIAS
 # ─────────────────────────────────────────────
 def verificar_avaliacao(user_id):
-    res = (
-        sb.table("usuarios")
-        .select("primeiro_acesso, avaliacao_enviada")
-        .eq("user_id", user_id)
-        .execute()
+    """
+    Verifica se já passaram 5 dias desde o primeiro acesso
+    e se a oferta do relatório ainda não foi enviada.
+    Retorna (deve_oferecer: bool, contexto_humor: str).
+    """
+    conn = sqlite3.connect("psicopods.db")
+    c = conn.cursor()
+    c.execute(
+        "SELECT primeiro_acesso, avaliacao_enviada FROM usuarios WHERE user_id = ?",
+        (user_id,),
     )
-    rows = res.data or []
-    if not rows:
+    row = c.fetchone()
+    conn.close()
+
+    if not row:
         return False, "neutro"
 
-    row = rows[0]
-    primeiro_acesso = datetime.fromisoformat(row["primeiro_acesso"])
-    avaliacao_enviada = row["avaliacao_enviada"]
-
-    # Garante que primeiro_acesso tenha timezone para comparação
-    if primeiro_acesso.tzinfo is None:
-        primeiro_acesso = primeiro_acesso.replace(tzinfo=FUSO_BRASILIA)
-
-    dias = (datetime.now(FUSO_BRASILIA) - primeiro_acesso).days
+    primeiro_acesso = datetime.strptime(row[0][:19], "%Y-%m-%d %H:%M:%S")
+    avaliacao_enviada = row[1]
+    dias = (datetime.now() - primeiro_acesso).days
 
     if dias >= 5 and not avaliacao_enviada:
-        cinco_dias_atras = (datetime.now(FUSO_BRASILIA) - timedelta(days=5)).isoformat()
-        res2 = (
-            sb.table("mensagens")
-            .select("humor")
-            .eq("user_id", user_id)
-            .eq("role", "user")
-            .gte("timestamp", cinco_dias_atras)
-            .order("timestamp", desc=True)
-            .execute()
+        conn = sqlite3.connect("psicopods.db")
+        c = conn.cursor()
+        c.execute(
+            """
+            SELECT humor FROM mensagens
+            WHERE user_id = ? AND role = 'user'
+            AND timestamp >= ?
+            ORDER BY timestamp DESC
+            """,
+            (user_id, datetime.now() - timedelta(days=5)),
         )
-        humores = [r["humor"] for r in (res2.data or [])]
+        humores = [r[0] for r in c.fetchall()]
+        conn.close()
 
         if not humores:
             return False, "neutro"
@@ -614,12 +686,14 @@ def verificar_avaliacao(user_id):
 
 
 def gerar_mensagem_oferta_relatorio(contexto):
+    """Mensagem de oferta do relatório, adaptada ao contexto emocional."""
     mensagens = {
         "agravado": (
             "Tenho notado que você carregou coisas difíceis em vários momentos "
             "nesses dias. Estou aqui. 💙\n\n"
             "Preparei uma devolutiva sobre o que percebi nesse período — "
-            "escrita com cuidado, só pra você.\n\nQuer receber?"
+            "escrita com cuidado, só pra você.\n\n"
+            "Quer receber?"
         ),
         "levemente_negativo": (
             "Percebi que alguns momentos têm sido mais pesados para você "
@@ -644,9 +718,13 @@ def gerar_mensagem_oferta_relatorio(contexto):
 
 
 # ─────────────────────────────────────────────
-# 📝 GERAÇÃO DO RELATÓRIO EMOCIONAL
+# 📝 GERAÇÃO DO RELATÓRIO EMOCIONAL PELO CLAUDE
 # ─────────────────────────────────────────────
 def compilar_historico_para_relatorio(mensagens_5_dias):
+    """
+    Transforma as tuplas brutas do banco num texto estruturado
+    por dia, para alimentar o prompt do relatório narrativo.
+    """
     if not mensagens_5_dias:
         return "Nenhuma mensagem encontrada nos últimos 5 dias."
 
@@ -655,7 +733,7 @@ def compilar_historico_para_relatorio(mensagens_5_dias):
 
     for content, humor, timestamp in mensagens_5_dias:
         try:
-            ts = datetime.fromisoformat(timestamp)
+            ts = datetime.strptime(timestamp[:19], "%Y-%m-%d %H:%M:%S")
             dia_str = ts.strftime("%d/%m/%Y")
             hora_str = ts.strftime("%H:%M")
             dia_semana = DIAS_SEMANA[ts.weekday()]
@@ -664,6 +742,7 @@ def compilar_historico_para_relatorio(mensagens_5_dias):
             hora_str = "?"
             dia_semana = "?"
 
+        # Separador visual por dia
         if dia_str != dia_anterior:
             linhas.append(f"\n--- {dia_semana}, {dia_str} ---")
             dia_anterior = dia_str
@@ -674,6 +753,10 @@ def compilar_historico_para_relatorio(mensagens_5_dias):
 
 
 def gerar_relatorio_claude(user_id):
+    """
+    Chama a API do Claude com o SYSTEM_PROMPT_RELATORIO e o histórico
+    real dos últimos 5 dias para gerar a devolutiva emocional narrativa.
+    """
     mensagens_5_dias = buscar_mensagens_5_dias(user_id)
     historico_formatado = compilar_historico_para_relatorio(mensagens_5_dias)
     n_mensagens = len(mensagens_5_dias)
@@ -690,7 +773,7 @@ def gerar_relatorio_claude(user_id):
     client = anthropic.Anthropic(api_key=ANTHROPIC_KEY)
     response = client.messages.create(
         model="claude-opus-4-5",
-        max_tokens=900,
+        max_tokens=900,  # relatório pode ser ligeiramente mais longo
         system=SYSTEM_PROMPT_RELATORIO,
         messages=[{"role": "user", "content": prompt_usuario}],
     )
@@ -724,8 +807,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     salvar_mensagem(user_id, "user", user_text, humor)
 
     # ── BLOCO 1: FLUXO DO RELATÓRIO ────────────────────────────
+    # Se o bot está aguardando a confirmação do usuário
+    # para gerar o relatório dos 5 dias
     if get_aguardando_relatorio(user_id):
         if modo == "confirmacao":
+            # Usuário quer o relatório — gera agora
             set_aguardando_relatorio(user_id, 0)
             await update.message.reply_text(
                 "Vou preparar sua devolutiva agora. Um momento... 💙"
@@ -734,6 +820,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 relatorio = gerar_relatorio_claude(user_id)
                 salvar_mensagem(user_id, "assistant", relatorio)
                 await update.message.reply_text(relatorio)
+                # Mensagem de encerramento pós-relatório
                 fechamento = (
                     "Esse foi o que ficou comigo desses dias com você.\n\n"
                     "Se quiser conversar sobre alguma parte disso — "
@@ -749,6 +836,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         elif modo == "negacao":
+            # Usuário recusou — respeita sem insistir
             set_aguardando_relatorio(user_id, 0)
             resposta = "Tudo bem, sem pressão. Estou aqui quando precisar. 💙"
             salvar_mensagem(user_id, "assistant", resposta)
@@ -756,9 +844,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         else:
+            # Usuário enviou outra mensagem qualquer —
+            # cancela a espera e segue o fluxo normal
             set_aguardando_relatorio(user_id, 0)
 
     # ── BLOCO 2: VERIFICAÇÃO DOS 5 DIAS ────────────────────────
+    # Só dispara uma vez, quando a condição de tempo é atingida
     deve_avaliar, contexto_humor = verificar_avaliacao(user_id)
     if deve_avaliar:
         oferta = gerar_mensagem_oferta_relatorio(contexto_humor)
@@ -766,7 +857,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         set_aguardando_relatorio(user_id, 1)
         salvar_mensagem(user_id, "assistant", oferta)
         await update.message.reply_text(oferta)
-        return
+        return  # aguarda resposta do usuário antes de continuar
 
     # ── BLOCO 3: FLUXO NORMAL DE ESCUTA ────────────────────────
     contexto_temporal = get_contexto_temporal()
@@ -795,6 +886,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # 🚀 MAIN
 # ─────────────────────────────────────────────
 def main():
+    init_db()
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
