@@ -5,24 +5,3 @@ expertMode = true
 [nix]
 
 [workflows]
-runButton = "Project"
-
-[[workflows.workflow]]
-name = "Project"
-mode = "parallel"
-author = "agent"
-
-[[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "PsicoPods Bot"
-
-[[workflows.workflow]]
-name = "PsicoPods Bot"
-author = "agent"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "cd PsicoPods && python main.py"
-
-[workflows.workflow.metadata]
-outputType = "console"
