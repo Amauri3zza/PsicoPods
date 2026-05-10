@@ -1,5 +1,5 @@
 import os, json, logging
-import psycopg2
+import psycopg
 from datetime import datetime
 from anthropic import Anthropic
 from telegram import Update
