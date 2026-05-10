@@ -1,5 +1,5 @@
 import os, json, logging, urllib.parse
-import pg8000.dbapi as db
+import sqlite3 as db
 from datetime import datetime
 from anthropic import Anthropic
 from telegram import Update
@@ -61,7 +61,7 @@ def verificar_risco(texto):
 
 def conectar():
     r = urllib.parse.urlparse(DATABASE_URL)
-    return db.connect(
+    return db.connect("/tmp/memoria.db")
         host=r.hostname,
         port=r.port,
         database=r.path[1:],
