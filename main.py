@@ -60,7 +60,8 @@ def verificar_risco(texto):
 
 
 def conectar():
-    return psycopg2.connect(DATABASE_URL)
+    url = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+    return psycopg2.connect(url, sslmode='require')
 
 
 def inicializar_banco():
