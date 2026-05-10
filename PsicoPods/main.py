@@ -1,5 +1,4 @@
-import os, json, logging, urllib.parse
-import sqlite3 as db
+import os, json, logging, sqlite3
 from datetime import datetime
 from anthropic import Anthropic
 from telegram import Update
@@ -14,7 +13,6 @@ from telegram.ext import (
 TOKEN = os.environ.get("TELEGRAM_TOKEN")
 ANTHROPIC_KEY = os.environ.get("ANTHROPIC_API_KEY")
 WEBHOOK_URL = os.environ.get("WEBHOOK_URL")
-DATABASE_URL = os.environ.get("DATABASE_URL")
 PORT = int(os.environ.get("PORT", 8080))
 client = Anthropic(api_key=ANTHROPIC_KEY)
 logging.basicConfig(level=logging.INFO)
@@ -60,38 +58,25 @@ def verificar_risco(texto):
 
 
 def conectar():
-    r = urllib.parse.urlparse(DATABASE_URL)
-    return db.connect("/tmp/memoria.db")
-        host=r.hostname,
-        port=r.port,
-        database=r.path[1:],
-        user=r.username,
-        password=r.password,
-    )
+    return sqlite3.connect("/tmp/memoria.db")
 
 
 def inicializar_banco():
-    try:
-        conn = conectar()
-        cur = conn.cursor()
-        cur.execute(
-            "CREATE TABLE IF NOT EXISTS memoria (user_id TEXT PRIMARY KEY, historico TEXT NOT NULL)"
-        )
-        conn.commit()
-        cur.close()
-        conn.close()
-        logger.info("Banco OK")
-    except Exception as e:
-        logger.error(f"Erro banco: {e}")
+    conn = conectar()
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS memoria (user_id TEXT PRIMARY KEY, historico TEXT NOT NULL)"
+    )
+    conn.commit()
+    conn.close()
+    logger.info("Banco SQLite OK")
 
 
 def carregar_historico(user_id):
     try:
         conn = conectar()
-        cur = conn.cursor()
-        cur.execute("SELECT historico FROM memoria WHERE user_id=%s", (user_id,))
-        row = cur.fetchone()
-        cur.close()
+        row = conn.execute(
+            "SELECT historico FROM memoria WHERE user_id=?", (user_id,)
+        ).fetchone()
         conn.close()
         return json.loads(row[0]) if row else []
     except Exception as e:
@@ -102,13 +87,11 @@ def carregar_historico(user_id):
 def salvar_historico(user_id, historico):
     try:
         conn = conectar()
-        cur = conn.cursor()
-        cur.execute(
-            "INSERT INTO memoria (user_id,historico) VALUES (%s,%s) ON CONFLICT (user_id) DO UPDATE SET historico=EXCLUDED.historico",
+        conn.execute(
+            "INSERT INTO memoria (user_id,historico) VALUES (?,?) ON CONFLICT(user_id) DO UPDATE SET historico=excluded.historico",
             (user_id, json.dumps(historico, ensure_ascii=False)),
         )
         conn.commit()
-        cur.close()
         conn.close()
     except Exception as e:
         logger.error(f"Erro salvar: {e}")
@@ -117,10 +100,8 @@ def salvar_historico(user_id, historico):
 def limpar_historico(user_id):
     try:
         conn = conectar()
-        cur = conn.cursor()
-        cur.execute("DELETE FROM memoria WHERE user_id=%s", (user_id,))
+        conn.execute("DELETE FROM memoria WHERE user_id=?", (user_id,))
         conn.commit()
-        cur.close()
         conn.close()
     except Exception as e:
         logger.error(f"Erro limpar: {e}")
