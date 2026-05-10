@@ -1,5 +1,5 @@
 import os, json, logging
-import pg8000.dbapi as pg
+import sqlite3
 from datetime import datetime
 from anthropic import Anthropic
 from telegram import Update
