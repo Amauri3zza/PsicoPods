@@ -1,4 +1,4 @@
 python-telegram-bot==20.7
 anthropic
 pytz
-pg8000:# rebuild
+psycopg2-binary

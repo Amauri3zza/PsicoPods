@@ -1,4 +1,5 @@
-import os, json, logging, sqlite3
+import os, json, logging
+import psycopg2
 from datetime import datetime
 from anthropic import Anthropic
 from telegram import Update
@@ -12,6 +13,7 @@ from telegram.ext import (
 
 TOKEN = os.environ.get("TELEGRAM_TOKEN")
 ANTHROPIC_KEY = os.environ.get("ANTHROPIC_API_KEY")
+DATABASE_URL = os.environ.get("DATABASE_URL")
 WEBHOOK_URL = os.environ.get("WEBHOOK_URL")
 PORT = int(os.environ.get("PORT", 8080))
 client = Anthropic(api_key=ANTHROPIC_KEY)
@@ -58,25 +60,28 @@ def verificar_risco(texto):
 
 
 def conectar():
-    return sqlite3.connect("/tmp/memoria.db")
+    return psycopg2.connect(DATABASE_URL)
 
 
 def inicializar_banco():
     conn = conectar()
-    conn.execute(
+    cur = conn.cursor()
+    cur.execute(
         "CREATE TABLE IF NOT EXISTS memoria (user_id TEXT PRIMARY KEY, historico TEXT NOT NULL)"
     )
     conn.commit()
+    cur.close()
     conn.close()
-    logger.info("Banco SQLite OK")
+    logger.info("Banco PostgreSQL OK")
 
 
 def carregar_historico(user_id):
     try:
         conn = conectar()
-        row = conn.execute(
-            "SELECT historico FROM memoria WHERE user_id=?", (user_id,)
-        ).fetchone()
+        cur = conn.cursor()
+        cur.execute("SELECT historico FROM memoria WHERE user_id=%s", (user_id,))
+        row = cur.fetchone()
+        cur.close()
         conn.close()
         return json.loads(row[0]) if row else []
     except Exception as e:
@@ -87,11 +92,13 @@ def carregar_historico(user_id):
 def salvar_historico(user_id, historico):
     try:
         conn = conectar()
-        conn.execute(
-            "INSERT INTO memoria (user_id,historico) VALUES (?,?) ON CONFLICT(user_id) DO UPDATE SET historico=excluded.historico",
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO memoria (user_id, historico) VALUES (%s, %s) ON CONFLICT (user_id) DO UPDATE SET historico=EXCLUDED.historico",
             (user_id, json.dumps(historico, ensure_ascii=False)),
         )
         conn.commit()
+        cur.close()
         conn.close()
     except Exception as e:
         logger.error(f"Erro salvar: {e}")
@@ -100,8 +107,10 @@ def salvar_historico(user_id, historico):
 def limpar_historico(user_id):
     try:
         conn = conectar()
-        conn.execute("DELETE FROM memoria WHERE user_id=?", (user_id,))
+        cur = conn.cursor()
+        cur.execute("DELETE FROM memoria WHERE user_id=%s", (user_id,))
         conn.commit()
+        cur.close()
         conn.close()
     except Exception as e:
         logger.error(f"Erro limpar: {e}")
@@ -190,9 +199,3 @@ def main():
             url_path=TOKEN,
             webhook_url=f"{WEBHOOK_URL}/{TOKEN}",
         )
-    else:
-        app.run_polling(drop_pending_updates=True)
-
-
-if __name__ == "__main__":
-    main()
