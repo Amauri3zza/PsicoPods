@@ -124,7 +124,6 @@ def verificar_risco(texto: str) -> bool:
         database=r.path[1:],
         user=r.username,
         password=r.password,
-        ssl_context=True,
     )
 
 
