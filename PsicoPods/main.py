@@ -11,13 +11,19 @@ import pg8000.dbapi as psycopg2
 from datetime import datetime
 from anthropic import Anthropic
 from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    MessageHandler,
+    filters,
+    ContextTypes,
+)
 
-TOKEN         = os.environ.get("TELEGRAM_TOKEN")
+TOKEN = os.environ.get("TELEGRAM_TOKEN")
 ANTHROPIC_KEY = os.environ.get("ANTHROPIC_API_KEY")
-WEBHOOK_URL   = os.environ.get("WEBHOOK_URL")
-DATABASE_URL  = os.environ.get("DATABASE_URL")
-PORT          = int(os.environ.get("PORT", 8080))
+WEBHOOK_URL = os.environ.get("WEBHOOK_URL")
+DATABASE_URL = os.environ.get("DATABASE_URL")
+PORT = int(os.environ.get("PORT", 8080))
 
 client = Anthropic(api_key=ANTHROPIC_KEY)
 logging.basicConfig(level=logging.INFO)
@@ -46,16 +52,46 @@ na interseção entre saúde mental, linguagem e inteligência artificial.
 O PsicoPods é seu projeto principal."""
 
 PALAVRAS_RISCO = [
-    "me machucar", "me matar", "suicídio", "suicidio", "não quero viver",
-    "nao quero viver", "acabar com tudo", "acabar com minha vida",
-    "tirar minha vida", "me bater", "me agride", "me bateu",
-    "violência doméstica", "violencia domestica", "violência", "violencia",
-    "abuso", "agressão", "agressao", "estou em perigo", "ele me ameaça",
-    "ele me ameaca", "socorro", "ajuda urgente", "estupro", "assédio",
-    "assedio", "me sinto em perigo", "tenho medo de morrer",
-    "ele vai me matar", "ela vai me matar", "não aguento mais",
-    "nao aguento mais", "quero desaparecer", "sem saída", "sem saida",
-    "automutilação", "automutilacao", "me cortar", "me cortei"
+    "me machucar",
+    "me matar",
+    "suicídio",
+    "suicidio",
+    "não quero viver",
+    "nao quero viver",
+    "acabar com tudo",
+    "acabar com minha vida",
+    "tirar minha vida",
+    "me bater",
+    "me agride",
+    "me bateu",
+    "violência doméstica",
+    "violencia domestica",
+    "violência",
+    "violencia",
+    "abuso",
+    "agressão",
+    "agressao",
+    "estou em perigo",
+    "ele me ameaça",
+    "ele me ameaca",
+    "socorro",
+    "ajuda urgente",
+    "estupro",
+    "assédio",
+    "assedio",
+    "me sinto em perigo",
+    "tenho medo de morrer",
+    "ele vai me matar",
+    "ela vai me matar",
+    "não aguento mais",
+    "nao aguento mais",
+    "quero desaparecer",
+    "sem saída",
+    "sem saida",
+    "automutilação",
+    "automutilacao",
+    "me cortar",
+    "me cortei",
 ]
 
 RESPOSTA_RISCO = """Percebi que você trouxe algo muito sério, e quero que saiba que estou aqui com você agora.
@@ -77,12 +113,20 @@ Se estiver em perigo agora, por favor ligue imediatamente para o *190*.
 
 Você consegue me contar um pouco mais sobre o que está acontecendo?"""
 
+
 def verificar_risco(texto: str) -> bool:
     texto_lower = texto.lower()
     return any(palavra in texto_lower for palavra in PALAVRAS_RISCO)
 
-def conectar():
-    return psycopg2.connect(DATABASE_URL, sslmode="require")
+    return psycopg2.connect(
+        host=r.hostname,
+        port=r.port,
+        database=r.path[1:],
+        user=r.username,
+        password=r.password,
+        ssl_context=True,
+    )
+
 
 def inicializar_banco():
     try:
@@ -102,6 +146,7 @@ def inicializar_banco():
     except Exception as e:
         logger.error(f"Erro ao inicializar banco: {e}")
 
+
 def carregar_historico(user_id: str) -> list:
     try:
         conn = conectar()
@@ -117,22 +162,27 @@ def carregar_historico(user_id: str) -> list:
         logger.error(f"Erro ao carregar histórico: {e}")
         return []
 
+
 def salvar_historico(user_id: str, historico: list):
     try:
         conn = conectar()
         cur = conn.cursor()
-        cur.execute("""
+        cur.execute(
+            """
             INSERT INTO memoria (user_id, historico, atualizado_em)
             VALUES (%s, %s, NOW())
             ON CONFLICT (user_id)
             DO UPDATE SET historico = EXCLUDED.historico,
                           atualizado_em = NOW()
-        """, (user_id, json.dumps(historico, ensure_ascii=False)))
+        """,
+            (user_id, json.dumps(historico, ensure_ascii=False)),
+        )
         conn.commit()
         cur.close()
         conn.close()
     except Exception as e:
         logger.error(f"Erro ao salvar histórico: {e}")
+
 
 def limpar_historico(user_id: str):
     try:
@@ -145,6 +195,7 @@ def limpar_historico(user_id: str):
     except Exception as e:
         logger.error(f"Erro ao limpar histórico: {e}")
 
+
 def gerar_relatorio(user_id: str) -> str:
     msgs = carregar_historico(user_id)
     if not msgs:
@@ -153,7 +204,7 @@ def gerar_relatorio(user_id: str) -> str:
             "Continue conversando e volte aqui depois. 💙"
         )
     do_usuario = [m for m in msgs if m["role"] == "user"]
-    total      = len(msgs)
+    total = len(msgs)
     data_agora = datetime.now().strftime("%d/%m/%Y às %H:%M")
     return (
         f"📊 *Resumo da sua jornada no PsicoPods*\n\n"
@@ -165,9 +216,10 @@ def gerar_relatorio(user_id: str) -> str:
         f"A Palimpsest agradece sua confiança. 💙"
     )
 
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
-    nome    = update.effective_user.first_name or "você"
+    nome = update.effective_user.first_name or "você"
     historico = carregar_historico(user_id)
     if not historico:
         salvar_historico(user_id, [])
@@ -180,10 +232,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_text(mensagem, parse_mode="Markdown")
 
+
 async def relatorio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
-    texto   = gerar_relatorio(user_id)
+    texto = gerar_relatorio(user_id)
     await update.message.reply_text(texto, parse_mode="Markdown")
+
 
 async def limpar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
@@ -191,6 +245,7 @@ async def limpar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "Tudo bem. Começamos do zero. ✨\n\nO que você gostaria de compartilhar agora?"
     )
+
 
 async def ajuda(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
@@ -200,16 +255,17 @@ async def ajuda(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/limpar — Apaga o histórico e começa nova conversa\n"
         "/ajuda — Mostra esta lista\n\n"
         "Ou simplesmente *escreva o que está sentindo* — estou aqui. 💙",
-        parse_mode="Markdown"
+        parse_mode="Markdown",
     )
 
+
 async def responder(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id   = str(update.effective_user.id)
-    texto     = update.message.text.strip()
+    user_id = str(update.effective_user.id)
+    texto = update.message.text.strip()
     historico = carregar_historico(user_id)
 
     if verificar_risco(texto):
-        historico.append({"role": "user",      "content": texto})
+        historico.append({"role": "user", "content": texto})
         historico.append({"role": "assistant", "content": RESPOSTA_RISCO})
         salvar_historico(user_id, historico)
         await update.message.reply_text(RESPOSTA_RISCO, parse_mode="Markdown")
@@ -224,7 +280,7 @@ async def responder(update: Update, context: ContextTypes.DEFAULT_TYPE):
             model="claude-haiku-4-5-20251001",
             max_tokens=500,
             system=SYSTEM_PROMPT,
-            messages=historico
+            messages=historico,
         )
         texto_resposta = resposta.content[0].text
         historico.append({"role": "assistant", "content": texto_resposta})
@@ -238,13 +294,14 @@ async def responder(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Pode tentar novamente em instantes? 🙏"
         )
 
+
 def main():
     inicializar_banco()
     app = Application.builder().token(TOKEN).build()
-    app.add_handler(CommandHandler("start",     start))
+    app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("relatorio", relatorio))
-    app.add_handler(CommandHandler("limpar",    limpar))
-    app.add_handler(CommandHandler("ajuda",     ajuda))
+    app.add_handler(CommandHandler("limpar", limpar))
+    app.add_handler(CommandHandler("ajuda", ajuda))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, responder))
 
     if WEBHOOK_URL:
@@ -253,11 +310,12 @@ def main():
             listen="0.0.0.0",
             port=PORT,
             url_path=TOKEN,
-            webhook_url=f"{WEBHOOK_URL}/{TOKEN}"
+            webhook_url=f"{WEBHOOK_URL}/{TOKEN}",
         )
     else:
         logger.info("Iniciando em modo POLLING")
         app.run_polling(drop_pending_updates=True)
+
 
 if __name__ == "__main__":
     main()
