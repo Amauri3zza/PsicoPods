@@ -60,7 +60,7 @@ def verificar_risco(texto):
 
 
 def conectar():
-    return psycopg2.connect(DATABASE_URL)
+    return psycopg.connect(DATABASE_URL)
 
 
 def inicializar_banco():
