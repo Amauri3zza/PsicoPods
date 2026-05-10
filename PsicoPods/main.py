@@ -60,7 +60,7 @@ def verificar_risco(texto):
 
 
 def conectar():
-    return psycopg.connect(DATABASE_URL)
+    return sqlite3.connect("/tmp/memoria.db")
 
 
 def inicializar_banco():
