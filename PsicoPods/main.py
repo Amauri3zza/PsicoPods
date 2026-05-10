@@ -1,5 +1,5 @@
 import os, json, logging
-import sqlite3
+import pg8000.dbapi as pg
 import urllib.parse
 from datetime import datetime
 from anthropic import Anthropic
@@ -36,17 +36,19 @@ def verificar_risco(texto):
 
 
 def conectar():
-    url = DATABASE_URL.replace("postgres://", "postgresql://", 1)
-    r = urllib.parse.urlparse(url)
+    url = DATABASE_URL.replace("postgresql://", "", 1)
+    userinfo, hostinfo = url.split("@")
+    user, password = userinfo.split(":", 1)
+    hostport, database = hostinfo.split("/", 1)
+    host, port = hostport.rsplit(":", 1)
     return pg.connect(
-        host=r.hostname,
-        port=r.port or 5432,
-        database=r.path.lstrip("/"),
-        user=r.username,
-        password=r.password,
+        host=host,
+        port=int(port),
+        database=database,
+        user=user,
+        password=password,
         ssl_context=True,
     )
-
 
 def inicializar_banco():
     conn = conectar()
