@@ -144,7 +144,6 @@ def inicializar_banco():
         logger.info("Banco de dados inicializado com sucesso.")
     except Exception as e:
         logger.error(f"Erro ao inicializar banco: {e}")
- logger.error(f"DATABASE_URL: {DATABASE_URL[:30] if DATABASE_URL else None}")
 
 
 def carregar_historico(user_id: str) -> list:
@@ -160,7 +159,6 @@ def carregar_historico(user_id: str) -> list:
         return []
     except Exception as e:
         logger.error(f"Erro ao carregar histórico: {e}")
- logger.error(f"DATABASE_URL: {DATABASE_URL[:30] if DATABASE_URL else None}")
         return []
 
 
