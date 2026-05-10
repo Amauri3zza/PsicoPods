@@ -1,5 +1,5 @@
 import os
-import sqlite3
+import pg8000.dbapi as pg
 from datetime import datetime, timedelta, timezone
 from telegram import Update
 from telegram.ext import (
