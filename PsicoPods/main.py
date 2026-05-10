@@ -7,7 +7,7 @@ Versão com memória persistente via PostgreSQL
 import os
 import json
 import logging
-import pg8000.dbapi as psycopg2
+import psycopg2
 from datetime import datetime
 from anthropic import Anthropic
 from telegram import Update
