@@ -1,5 +1,5 @@
 import os, json, logging
-import pg8000.dbapi as pg
+import sqlite3
 import urllib.parse
 from datetime import datetime
 from anthropic import Anthropic
