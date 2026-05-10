@@ -1,4 +1,3 @@
-cat > main.py << "EOF"
 import os, json, logging, urllib.parse
 import pg8000.dbapi as db
 from datetime import datetime
