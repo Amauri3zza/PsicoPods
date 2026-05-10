@@ -5,3 +5,6 @@ expertMode = true
 [nix]
 
 [workflows]
+
+[deployment]
+deploymentTarget = "cloudrun"
