@@ -4,11 +4,7 @@ from datetime import datetime
 from anthropic import Anthropic
 from telegram import Update
 from telegram.ext import (
-    Application,
-    CommandHandler,
-    MessageHandler,
-    filters,
-    ContextTypes,
+    Application, CommandHandler, MessageHandler, filters, ContextTypes,
 )
 
 TOKEN = os.environ.get("TELEGRAM_TOKEN")
@@ -23,33 +19,12 @@ logger = logging.getLogger(__name__)
 SYSTEM_PROMPT = """Você é o PsicoPods, um assistente de escuta emocional criado pela Palimpsest, startup brasileira fundada pelo Psicólogo Clínico Amauri Trezza Martins. Seu papel é oferecer acolhimento, escuta ativa e suporte emocional. Você NUNCA faz diagnósticos, prescrições ou substitui atendimento profissional. Use linguagem simples, humana e acolhedora. NUNCA dê diagnósticos nem prescrições. NUNCA dê conselhos diretos. Termine SEMPRE com uma pergunta aberta. Respostas curtas têm mais impacto. Valide os sentimentos ANTES de qualquer resposta. NUNCA minimize o que a pessoa sente."""
 
 PALAVRAS_RISCO = [
-    "me machucar",
-    "me matar",
-    "suicídio",
-    "suicidio",
-    "não quero viver",
-    "nao quero viver",
-    "acabar com tudo",
-    "acabar com minha vida",
-    "tirar minha vida",
-    "violência doméstica",
-    "violencia domestica",
-    "abuso",
-    "agressão",
-    "agressao",
-    "estou em perigo",
-    "socorro",
-    "ajuda urgente",
-    "estupro",
-    "assédio",
-    "assedio",
-    "não aguento mais",
-    "nao aguento mais",
-    "quero desaparecer",
-    "automutilação",
-    "automutilacao",
-    "me cortar",
-    "me cortei",
+    "me machucar","me matar","suicídio","suicidio","não quero viver",
+    "nao quero viver","acabar com tudo","acabar com minha vida","tirar minha vida",
+    "violência doméstica","violencia domestica","abuso","agressão","agressao",
+    "estou em perigo","socorro","ajuda urgente","estupro","assédio","assedio",
+    "não aguento mais","nao aguento mais","quero desaparecer","automutilação",
+    "automutilacao","me cortar","me cortei",
 ]
 
 RESPOSTA_RISCO = """Percebi que você trouxe algo muito sério, e quero que saiba que estou aqui com você agora.\n\nO que você está sentindo importa, e você não precisa passar por isso sozinha(o).\n\n🆘 *Canais de ajuda imediata:*\n• *CVV* — Ligue *188*\n• *Ligue 180* — Atendimento à Mulher\n• *SAMU:* 192 | *Polícia:* 190\n\nVocê consegue me contar mais sobre o que está acontecendo?"""
@@ -61,15 +36,13 @@ def verificar_risco(texto):
 
 def conectar():
     url = DATABASE_URL.replace("postgres://", "postgresql://", 1)
-    return psycopg2.connect(url, sslmode='require')
+    return psycopg2.connect(url, sslmode="require")
 
 
 def inicializar_banco():
     conn = conectar()
     cur = conn.cursor()
-    cur.execute(
-        "CREATE TABLE IF NOT EXISTS memoria (user_id TEXT PRIMARY KEY, historico TEXT NOT NULL)"
-    )
+    cur.execute("CREATE TABLE IF NOT EXISTS memoria (user_id TEXT PRIMARY KEY, historico TEXT NOT NULL)")
     conn.commit()
     cur.close()
     conn.close()
@@ -129,9 +102,7 @@ async def relatorio(update, context):
     user_id = str(update.effective_user.id)
     msgs = carregar_historico(user_id)
     if not msgs:
-        await update.message.reply_text(
-            "Ainda não temos histórico suficiente. Continue conversando e volte aqui depois. 💙"
-        )
+        await update.message.reply_text("Ainda não temos histórico suficiente. Continue conversando e volte aqui depois. 💙")
         return
     du = [m for m in msgs if m["role"] == "user"]
     await update.message.reply_text(
@@ -142,9 +113,7 @@ async def relatorio(update, context):
 
 async def limpar(update, context):
     limpar_historico(str(update.effective_user.id))
-    await update.message.reply_text(
-        "Tudo bem. Começamos do zero. ✨\n\nO que você gostaria de compartilhar agora?"
-    )
+    await update.message.reply_text("Tudo bem. Começamos do zero. ✨\n\nO que você gostaria de compartilhar agora?")
 
 
 async def ajuda(update, context):
@@ -180,14 +149,13 @@ async def responder(update, context):
         await update.message.reply_text(tr)
     except Exception as e:
         logger.error(f"Erro API: {e}")
-        await update.message.reply_text(
-            "Estou com uma dificuldade técnica. Pode tentar em instantes? 🙏"
-        )
+        await update.message.reply_text("Estou com uma dificuldade técnica. Pode tentar em instantes? 🙏")
 
 
 def main():
     try:
         inicializar_banco()
+        logger.info("Banco inicializado com sucesso")
     except Exception as e:
         logger.error(f"Erro banco na inicialização: {e}")
     app = Application.builder().token(TOKEN).build()
@@ -198,8 +166,12 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, responder))
     if WEBHOOK_URL:
         app.run_webhook(
-            listen="0.0.0.0",
-            port=PORT,
-            url_path=TOKEN,
+            listen="0.0.0.0", port=PORT, url_path=TOKEN,
             webhook_url=f"{WEBHOOK_URL}/{TOKEN}",
         )
+    else:
+        app.run_polling(drop_pending_updates=True)
+
+
+if __name__ == "__main__":
+    main()
