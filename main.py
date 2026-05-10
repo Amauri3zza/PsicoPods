@@ -186,7 +186,10 @@ async def responder(update, context):
 
 
 def main():
-    inicializar_banco()
+    try:
+        inicializar_banco()
+    except Exception as e:
+        logger.error(f"Erro banco na inicialização: {e}")
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("relatorio", relatorio))
