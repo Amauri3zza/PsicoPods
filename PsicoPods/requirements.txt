@@ -1,4 +1,4 @@
 python-telegram-bot==20.7
 anthropic
 pytz
-psycopg[binary]
+pg8000
