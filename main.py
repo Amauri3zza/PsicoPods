@@ -1,5 +1,6 @@
 import os, json, logging
-import psycopg2
+import pg8000.dbapi as pg
+import urllib.parse
 from datetime import datetime
 from anthropic import Anthropic
 from telegram import Update
@@ -36,7 +37,15 @@ def verificar_risco(texto):
 
 def conectar():
     url = DATABASE_URL.replace("postgres://", "postgresql://", 1)
-    return psycopg2.connect(url, sslmode="require")
+    r = urllib.parse.urlparse(url)
+    return pg.connect(
+        host=r.hostname,
+        port=r.port or 5432,
+        database=r.path.lstrip("/"),
+        user=r.username,
+        password=r.password,
+        ssl_context=True,
+    )
 
 
 def inicializar_banco():
@@ -46,7 +55,7 @@ def inicializar_banco():
     conn.commit()
     cur.close()
     conn.close()
-    logger.info("Banco PostgreSQL OK")
+    logger.info("Banco OK")
 
 
 def carregar_historico(user_id):
@@ -157,7 +166,7 @@ def main():
         inicializar_banco()
         logger.info("Banco inicializado com sucesso")
     except Exception as e:
-        logger.error(f"Erro banco na inicialização: {e}")
+        logger.error(f"Erro banco: {e}")
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("relatorio", relatorio))
@@ -175,3 +184,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+  
