@@ -1,5 +1,5 @@
 import os, json, logging
-import sqlite3
+import pg8000.dbapi as pg
 import urllib.parse
 from datetime import datetime
 from anthropic import Anthropic
@@ -17,13 +17,34 @@ client = Anthropic(api_key=ANTHROPIC_KEY)
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = """Você é o PsicoPods, um assistente de escuta emocional criado pela Palimpsest, startup brasileira fundada pelo Psicólogo Clínico Amauri Trezza Martins. Seu papel é oferecer acolhimento, escuta ativa e suporte emocional. Você NUNCA faz diagnósticos, prescrições ou substitui atendimento profissional. Use linguagem simples, humana e acolhedora. NUNCA dê diagnósticos nem prescrições. NUNCA dê conselhos diretos. Termine SEMPRE com uma pergunta aberta. Respostas curtas têm mais impacto. Valide os sentimentos ANTES de qualquer resposta. NUNCA minimize o que a pessoa sente."""
+SYSTEM_PROMPT = """Você é o PsicoPods, um assistente de escuta emocional criado pela Palimpsest, startup brasileira fundada pelo Psicólogo Clínico Amauri Trezza Martins. Seu papel é oferecer acolhimento, escuta ativa e suporte emocional.
+
+REGRAS ESSENCIAIS:
+- NUNCA faça diagnósticos, prescrições ou substitua atendimento profissional
+- Use linguagem simples, humana e acolhedora
+- NUNCA dê conselhos diretos
+- Valide os sentimentos ANTES de qualquer resposta
+- NUNCA minimize o que a pessoa sente
+- Respostas CURTAS têm mais impacto — máximo 3 parágrafos curtos
+- Termine SEMPRE com uma pergunta aberta
+
+ESTILO NATURAL:
+Quando a conversa estiver fluindo bem e a pessoa estiver em momento mais leve ou reflexivo, você pode criar pontes culturais de forma espontânea e calorosa. Exemplos:
+- "Isso que você disse me faz lembrar uma música do Caetano Veloso... você conhece 'Sozinho'?"
+- "Tem um filme que captura exatamente isso que você está sentindo — já assistiu 'Amores Expressos'?"
+- "Isso me lembra um poema de Adélia Prado... você gosta de poesia?"
+- "Uma caminhada no parque às vezes ajuda a organizar esses pensamentos... tem um lugar assim perto de você?"
+
+Faça isso apenas quando a conversa permitir — nunca force em momentos de crise ou sofrimento intenso. A sugestão deve surgir naturalmente da conversa, conectada ao que a pessoa está sentindo."""
 
 PALAVRAS_RISCO = [
     "me machucar","me matar","suicídio","suicidio","não quero viver",
     "nao quero viver","acabar com tudo","acabar com minha vida","tirar minha vida",
-    "violência doméstica","violencia domestica","abuso","agressão","agressao",
-    "estou em perigo","socorro","ajuda urgente","estupro","assédio","assedio",
+    "violência doméstica","violencia domestica",
+    "sofri abuso","estou sofrendo abuso","abuso sexual","abuso físico","abuso fisico",
+    "agressão física","agressao fisica","agressão doméstica","agressao domestica",
+    "estou em perigo","socorro","ajuda urgente","estupro",
+    "assédio sexual","assedio sexual",
     "não aguento mais","nao aguento mais","quero desaparecer","automutilação",
     "automutilacao","me cortar","me cortei",
 ]
@@ -36,14 +57,17 @@ def verificar_risco(texto):
 
 
 def conectar():
-    url = DATABASE_URL.replace("postgres://", "postgresql://", 1)
-    r = urllib.parse.urlparse(url)
+    url = DATABASE_URL.replace("postgresql://", "", 1)
+    userinfo, hostinfo = url.split("@")
+    user, password = userinfo.split(":", 1)
+    hostport, database = hostinfo.split("/", 1)
+    host, port = hostport.rsplit(":", 1)
     return pg.connect(
-        host=r.hostname,
-        port=r.port or 5432,
-        database=r.path.lstrip("/"),
-        user=r.username,
-        password=r.password,
+        host=host,
+        port=int(port),
+        database=database,
+        user=user,
+        password=password,
         ssl_context=True,
     )
 
@@ -147,8 +171,8 @@ async def responder(update, context):
         historico = historico[-20:]
     try:
         resp = client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=500,
+            model="claude-sonnet-4-5",
+            max_tokens=300,
             system=SYSTEM_PROMPT,
             messages=historico,
         )
