@@ -213,6 +213,8 @@ def main():
             webhook_url=f"{WEBHOOK_URL}/{TOKEN}",
         )
     else:
+        import time
+        time.sleep(10)
         app.run_polling(drop_pending_updates=True)
 
 
