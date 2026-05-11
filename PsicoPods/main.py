@@ -72,8 +72,7 @@ def conectar():
         database="postgres",
         user="postgres",
         password=os.environ.get("DB_PASSWORD"),
-        sslmode="require"
-    )
+      )
     return conn
 
 
