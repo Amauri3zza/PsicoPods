@@ -99,15 +99,11 @@ def carregar_historico(user_id):
 
 def salvar_historico(user_id, historico):
     try:
-        conn = conectar()
-        cur = conn.cursor()
-        cur.execute(
-            "INSERT INTO memoria (user_id, historico) VALUES (%s, %s) ON CONFLICT (user_id) DO UPDATE SET historico=EXCLUDED.historico",
-            (user_id, json.dumps(historico, ensure_ascii=False)),
-        )
-        conn.commit()
-        cur.close()
-        conn.close()
+        sb = conectar()
+        sb.table("memoria").upsert({
+            "user_id": user_id,
+            "historico": json.dumps(historico, ensure_ascii=False)
+        }).execute()
     except Exception as e:
         logger.error(f"Erro salvar: {e}")
 
