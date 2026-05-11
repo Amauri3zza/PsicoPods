@@ -1,5 +1,5 @@
 import os, json, logging
-import psycopg2 as pg
+from supabase import create_client
 import urllib.parse
 from datetime import datetime
 import pytz
