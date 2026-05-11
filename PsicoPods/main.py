@@ -1,5 +1,5 @@
 import os, json, logging
-import pg8000.dbapi as pg
+import psycopg2 as pg
 import urllib.parse
 from datetime import datetime
 import pytz
