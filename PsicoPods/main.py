@@ -77,7 +77,7 @@ def conectar():
         database=database,
         user=user,
         password=password,
-        ssl_context=True,
+        sslmode='require',
     )
 
 
