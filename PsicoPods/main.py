@@ -68,7 +68,7 @@ def verificar_risco(texto):
 def conectar():
     conn = pg.connect(
         host="db.chmwclrdixmfimlyaymu.supabase.co",
-        port=5432,
+        port=6543,
         database="postgres",
         user="postgres",
         password=os.environ.get("DB_PASSWORD"),
