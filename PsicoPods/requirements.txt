@@ -2,4 +2,4 @@ python-telegram-bot==20.7
 anthropic
 pytz
 pg8000
-psycopg2-binary
+supabase
