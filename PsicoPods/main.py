@@ -2,6 +2,7 @@ import os, json, logging
 import pg8000.dbapi as pg
 import urllib.parse
 from datetime import datetime
+import pytz
 from anthropic import Anthropic
 from telegram import Update
 from telegram.ext import (
@@ -17,7 +18,15 @@ client = Anthropic(api_key=ANTHROPIC_KEY)
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = """Você é o PsicoPods, um assistente de escuta emocional criado pela Palimpsest, startup brasileira fundada pelo Psicólogo Clínico Amauri Trezza Martins. Seu papel é oferecer acolhimento, escuta ativa e suporte emocional.
+FUSO_BR = pytz.timezone("America/Sao_Paulo")
+DIAS_SEMANA = ["segunda-feira","terça-feira","quarta-feira","quinta-feira","sexta-feira","sábado","domingo"]
+
+def data_hora_br():
+    agora = datetime.now(FUSO_BR)
+    dia_semana = DIAS_SEMANA[agora.weekday()]
+    return agora.strftime(f"{dia_semana}, %d/%m/%Y às %H:%M")
+
+SYSTEM_PROMPT_BASE = """Você é o PsicoPods, um assistente de escuta emocional criado pela Palimpsest, startup brasileira fundada pelo Psicólogo Clínico Amauri Trezza Martins. Seu papel é oferecer acolhimento, escuta ativa e suporte emocional.
 
 REGRAS ESSENCIAIS:
 - NUNCA faça diagnósticos, prescrições ou substitua atendimento profissional
@@ -35,7 +44,7 @@ Quando a conversa estiver fluindo bem e a pessoa estiver em momento mais leve ou
 - "Isso me lembra um poema de Adélia Prado... você gosta de poesia?"
 - "Uma caminhada no parque às vezes ajuda a organizar esses pensamentos... tem um lugar assim perto de você?"
 
-Faça isso apenas quando a conversa permitir — nunca force em momentos de crise ou sofrimento intenso. A sugestão deve surgir naturalmente da conversa, conectada ao que a pessoa está sentindo."""
+Faça isso apenas quando a conversa permitir — nunca force em momentos de crise ou sofrimento intenso."""
 
 PALAVRAS_RISCO = [
     "me machucar","me matar","suicídio","suicidio","não quero viver",
@@ -139,7 +148,7 @@ async def relatorio(update, context):
         return
     du = [m for m in msgs if m["role"] == "user"]
     await update.message.reply_text(
-        f"📊 *Resumo da sua jornada*\n\n🗓️ {datetime.now().strftime('%d/%m/%Y às %H:%M')}\n💬 Trocas: {len(msgs) // 2}\n✍️ Suas mensagens: {len(du)}\n\nA Palimpsest agradece sua confiança. 💙",
+        f"📊 *Resumo da sua jornada*\n\n🗓️ {data_hora_br()}\n💬 Trocas: {len(msgs) // 2}\n✍️ Suas mensagens: {len(du)}\n\nA Palimpsest agradece sua confiança. 💙",
         parse_mode="Markdown",
     )
 
@@ -169,11 +178,12 @@ async def responder(update, context):
     historico.append({"role": "user", "content": texto})
     if len(historico) > 20:
         historico = historico[-20:]
+    system_prompt = f"{SYSTEM_PROMPT_BASE}\n\nData e hora atual em Brasília: {data_hora_br()}"
     try:
         resp = client.messages.create(
             model="claude-sonnet-4-5",
             max_tokens=300,
-            system=SYSTEM_PROMPT,
+            system=system_prompt,
             messages=historico,
         )
         tr = resp.content[0].text
