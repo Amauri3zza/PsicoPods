@@ -66,19 +66,8 @@ def verificar_risco(texto):
 
 
 def conectar():
-    url = DATABASE_URL.replace("postgresql://", "", 1)
-    userinfo, hostinfo = url.split("@")
-    user, password = userinfo.split(":", 1)
-    hostport, database = hostinfo.split("/", 1)
-    host, port = hostport.rsplit(":", 1)
-    return pg.connect(
-        host=host,
-        port=int(port),
-        database=database,
-        user=user,
-        password=password,
-        sslmode='require',
-    )
+    conn = pg.connect(DATABASE_URL)
+    return conn
 
 
 def inicializar_banco():
