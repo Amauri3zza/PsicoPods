@@ -66,19 +66,16 @@ def verificar_risco(texto):
 
 
 def conectar():
-    import ssl
-    ssl_context = ssl.create_default_context()
-    ssl_context.check_hostname = False
-    ssl_context.verify_mode = ssl.CERT_NONE
     conn = pg.connect(
         host="db.chmwclrdixmfimlyaymu.supabase.co",
         port=5432,
         database="postgres",
         user="postgres",
         password=os.environ.get("DB_PASSWORD"),
-        ssl_context=ssl_context
+        sslmode="require"
     )
     return conn
+
 
 
 def inicializar_banco():
