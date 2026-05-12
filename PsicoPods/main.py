@@ -1,5 +1,5 @@
 import os, json, logging
-from supabase import create_client
+import requests
 import urllib.parse
 from datetime import datetime
 import pytz
