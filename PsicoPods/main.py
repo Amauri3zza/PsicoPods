@@ -68,7 +68,7 @@ def verificar_risco(texto):
 def conectar():
     return create_client(
         "https://chmwclrdixmfimlyaymu.supabase.co",
-        "sb_secret_H-BI7-BPx7ktZyQCcKp9vg_vJ5hJpDL"
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNobXdjbHJkaXhtZmltbHlheW11Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc0MDkwMTEsImV4cCI6MjA5Mjk4NTAxMX0.zFJvCDbuhezfgfCM8k3HKBwxDk2sfgHutNTq-DwyAE4"
     )
 
 
