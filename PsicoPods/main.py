@@ -74,13 +74,12 @@ def conectar():
 
 
 def inicializar_banco():
-    conn = conectar()
-    cur = conn.cursor()
-    cur.execute("CREATE TABLE IF NOT EXISTS memoria (user_id TEXT PRIMARY KEY, historico TEXT NOT NULL)")
-    conn.commit()
-    cur.close()
-    conn.close()
-    logger.info("Banco OK")
+    try:
+        sb = conectar()
+        logger.info("Banco OK")
+        logger.info("Banco inicializado com sucesso")
+    except Exception as e:
+        logger.error(f"Erro banco: {e}")
 
 
 def carregar_historico(user_id):
