@@ -65,44 +65,39 @@ def verificar_risco(texto):
     return any(p in texto.lower() for p in PALAVRAS_RISCO)
 
 
-def conectar():
-    return create_client(
-        "https://chmwclrdixmfimlyaymu.supabase.co",
-        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNobXdjbHJkaXhtZmltbHlheW11Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc0MDkwMTEsImV4cCI6MjA5Mjk4NTAxMX0.zFJvCDbuhezfgfCM8k3HKBwxDk2sfgHutNTq-DwyAE4"
-    )
-
-
+SUPABASE_URL = "https://chmwclrdixmfimlyaymu.supabase.co"
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNobXdjbHJkaXhtZmltbHlheW11Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc0MDkwMTEsImV4cCI6MjA5Mjk4NTAxMX0.zFJvCDbuhezfgfCM8k3HKBwxDk2sfgHutNTq-DwyAE4"
+HEADERS = {
+    "apikey": SUPABASE_KEY,
+    "Authorization": f"Bearer {SUPABASE_KEY}",
+    "Content-Type": "application/json"
+}
 
 def inicializar_banco():
-    try:
-        sb = conectar()
-        logger.info("Banco OK")
-        logger.info("Banco inicializado com sucesso")
-    except Exception as e:
-        logger.error(f"Erro banco: {e}")
-
+    logger.info("Banco OK")
+    logger.info("Banco inicializado com sucesso")
 
 def carregar_historico(user_id):
     try:
-        conn = conectar()
-        cur = conn.cursor()
-        cur.execute("SELECT historico FROM memoria WHERE user_id=%s", (user_id,))
-        row = cur.fetchone()
-        cur.close()
-        conn.close()
-        return json.loads(row[0]) if row else []
+        r = requests.get(
+            f"{SUPABASE_URL}/rest/v1/memoria?user_id=eq.{user_id}&select=historico",
+            headers=HEADERS
+        )
+        data = r.json()
+        if data:
+            return json.loads(data[0]["historico"])
+        return []
     except Exception as e:
         logger.error(f"Erro carregar: {e}")
         return []
 
-
 def salvar_historico(user_id, historico):
     try:
-        sb = conectar()
-        sb.table("memoria").upsert({
-            "user_id": user_id,
-            "historico": json.dumps(historico, ensure_ascii=False)
-        }).execute()
+        requests.post(
+            f"{SUPABASE_URL}/rest/v1/memoria",
+            headers={**HEADERS, "Prefer": "resolution=merge-duplicates"},
+            json={"user_id": user_id, "historico": json.dumps(historico, ensure_ascii=False)}
+        )
     except Exception as e:
         logger.error(f"Erro salvar: {e}")
 
