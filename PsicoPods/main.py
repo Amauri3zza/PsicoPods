@@ -68,7 +68,7 @@ def verificar_risco(texto):
 def conectar():
     return create_client(
         "https://chmwclrdixmfimlyaymu.supabase.co",
-        os.environ.get("SUPABASE_KEY")
+        os.environ.get("sb_secret_H-BI7-BPx7ktZyQCcKp9vg_vJ5hJpDL")
     )
 
 
