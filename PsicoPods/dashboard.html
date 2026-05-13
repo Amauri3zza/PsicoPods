@@ -1,204 +1,874 @@
-import os, json, logging
-import requests
-import urllib.parse
-from datetime import datetime
-import pytz
-from anthropic import Anthropic
-from telegram import Update
-from telegram.ext import (
-    Application, CommandHandler, MessageHandler, filters, ContextTypes,
-)
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PsicoPods — Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Mono:wght@300;400;500&family=Sora:wght@300;400;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --surface2: #1c2333;
+    --border: #30363d;
+    --teal: #3ddba1;
+    --teal-dim: rgba(61,219,161,0.12);
+    --teal-glow: rgba(61,219,161,0.25);
+    --blue: #58a6ff;
+    --blue-dim: rgba(88,166,255,0.12);
+    --purple: #bc8cff;
+    --purple-dim: rgba(188,140,255,0.12);
+    --orange: #ff9f1c;
+    --orange-dim: rgba(255,159,28,0.12);
+    --red: #ff6b6b;
+    --red-dim: rgba(255,107,107,0.12);
+    --text: #e6edf3;
+    --text-muted: #8b949e;
+    --text-faint: #484f58;
+  }
 
-TOKEN = os.environ.get("TELEGRAM_TOKEN")
-ANTHROPIC_KEY = os.environ.get("ANTHROPIC_API_KEY")
-DATABASE_URL = os.environ.get("URL_DO_BANCO_DE_DADOS")
-WEBHOOK_URL = os.environ.get("WEBHOOK_URL")
-PORT = int(os.environ.get("PORT", 8080))
-client = Anthropic(api_key=ANTHROPIC_KEY)
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+  * { margin: 0; padding: 0; box-sizing: border-box; }
 
-FUSO_BR = pytz.timezone("America/Sao_Paulo")
-DIAS_SEMANA = ["segunda-feira","terça-feira","quarta-feira","quinta-feira","sexta-feira","sábado","domingo"]
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Sora', sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
 
-def data_hora_br():
-    agora = datetime.now(FUSO_BR)
-    dia_semana = DIAS_SEMANA[agora.weekday()]
-    return agora.strftime(f"{dia_semana}, %d/%m/%Y às %H:%M")
+  /* Grid background */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(61,219,161,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(61,219,161,0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
 
-SYSTEM_PROMPT_BASE = """Você é o PsicoPods, um assistente de escuta emocional criado pela Palimpsest, startup brasileira fundada pelo Psicólogo Clínico Amauri Trezza Martins. Seu papel é oferecer acolhimento, escuta ativa e suporte emocional.
+  .container { position: relative; z-index: 1; max-width: 1200px; margin: 0 auto; padding: 0 24px 60px; }
 
-REGRAS ESSENCIAIS:
-- NUNCA faça diagnósticos, prescrições ou substitua atendimento profissional
-- Use linguagem simples, humana e acolhedora
-- NUNCA dê conselhos diretos
-- Valide os sentimentos ANTES de qualquer resposta
-- NUNCA minimize o que a pessoa sente
-- Respostas CURTAS têm mais impacto — máximo 3 parágrafos curtos
-- Termine SEMPRE com uma pergunta aberta
+  /* HEADER */
+  header {
+    padding: 32px 0 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 32px;
+  }
 
-ESTILO NATURAL:
-Quando a conversa estiver fluindo bem e a pessoa estiver em momento mais leve ou reflexivo, você pode criar pontes culturais de forma espontânea e calorosa. Exemplos:
-- "Isso que você disse me faz lembrar uma música do Caetano Veloso... você conhece 'Sozinho'?"
-- "Tem um filme que captura exatamente isso que você está sentindo — já assistiu 'Amores Expressos'?"
-- "Isso me lembra um poema de Adélia Prado... você gosta de poesia?"
-- "Uma caminhada no parque às vezes ajuda a organizar esses pensamentos... tem um lugar assim perto de você?"
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
 
-Faça isso apenas quando a conversa permitir — nunca force em momentos de crise ou sofrimento intenso."""
+  .logo-icon {
+    width: 44px; height: 44px;
+    background: var(--teal-dim);
+    border: 1px solid var(--teal);
+    border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px;
+  }
 
-PALAVRAS_RISCO = [
-    "me machucar","me matar","suicídio","suicidio","não quero viver",
-    "nao quero viver","acabar com tudo","acabar com minha vida","tirar minha vida",
-    "violência doméstica","violencia domestica",
-    "sofri abuso","estou sofrendo abuso","abuso sexual","abuso físico","abuso fisico",
-    "agressão física","agressao fisica","agressão doméstica","agressao domestica",
-    "estou em perigo","socorro","ajuda urgente","estupro",
-    "assédio sexual","assedio sexual",
-    "não aguento mais","nao aguento mais","quero desaparecer","automutilação",
-    "automutilacao","me cortar","me cortei",
-]
+  .logo-text h1 {
+    font-family: 'DM Serif Display', serif;
+    font-size: 22px;
+    color: var(--text);
+    letter-spacing: -0.5px;
+  }
 
-RESPOSTA_RISCO = """Percebi que você trouxe algo muito sério, e quero que saiba que estou aqui com você agora.\n\nO que você está sentindo importa, e você não precisa passar por isso sozinha(o).\n\n🆘 *Canais de ajuda imediata:*\n• *CVV* — Ligue *188*\n• *Ligue 180* — Atendimento à Mulher\n• *SAMU:* 192 | *Polícia:* 190\n\nVocê consegue me contar mais sobre o que está acontecendo?"""
+  .logo-text span {
+    font-size: 11px;
+    color: var(--text-muted);
+    font-family: 'DM Mono', monospace;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
 
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
 
-def verificar_risco(texto):
-    return any(p in texto.lower() for p in PALAVRAS_RISCO)
+  .status-pill {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    background: var(--teal-dim);
+    border: 1px solid rgba(61,219,161,0.3);
+    border-radius: 100px;
+    padding: 6px 14px;
+    font-size: 12px;
+    color: var(--teal);
+    font-family: 'DM Mono', monospace;
+  }
 
+  .status-dot {
+    width: 7px; height: 7px;
+    background: var(--teal);
+    border-radius: 50%;
+    animation: pulse 2s infinite;
+  }
 
-SUPABASE_URL = "https://chmwclrdixmfimlyaymu.supabase.co"
-SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNobXdjbHJkaXhtZmltbHlheW11Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc0MDkwMTEsImV4cCI6MjA5Mjk4NTAxMX0.zFJvCDbuhezfgfCM8k3HKBwxDk2sfgHutNTq-DwyAE4"
-HEADERS = {
-    "apikey": SUPABASE_KEY,
-    "Authorization": f"Bearer {SUPABASE_KEY}",
-    "Content-Type": "application/json"
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(0.8); }
+  }
+
+  .refresh-btn {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text-muted);
+    padding: 8px 14px;
+    font-size: 12px;
+    font-family: 'DM Mono', monospace;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex; align-items: center; gap: 6px;
+  }
+
+  .refresh-btn:hover { border-color: var(--teal); color: var(--teal); }
+
+  .last-update {
+    font-size: 11px;
+    color: var(--text-faint);
+    font-family: 'DM Mono', monospace;
+  }
+
+  /* LOADING */
+  .loading-screen {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 60vh;
+    gap: 16px;
+  }
+
+  .spinner {
+    width: 40px; height: 40px;
+    border: 2px solid var(--border);
+    border-top-color: var(--teal);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .loading-text {
+    font-family: 'DM Mono', monospace;
+    font-size: 13px;
+    color: var(--text-muted);
+  }
+
+  /* ERROR */
+  .error-box {
+    background: var(--red-dim);
+    border: 1px solid rgba(255,107,107,0.3);
+    border-radius: 12px;
+    padding: 20px 24px;
+    margin: 40px 0;
+    font-family: 'DM Mono', monospace;
+    font-size: 13px;
+    color: var(--red);
+    display: none;
+  }
+
+  /* METRICS GRID */
+  .metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+
+  .metric-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 24px;
+    position: relative;
+    overflow: hidden;
+    transition: border-color 0.3s, transform 0.2s;
+    opacity: 0;
+    animation: fadeUp 0.5s forwards;
+  }
+
+  .metric-card:hover { transform: translateY(-2px); }
+
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(16px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .metric-card:nth-child(1) { animation-delay: 0.1s; }
+  .metric-card:nth-child(2) { animation-delay: 0.15s; }
+  .metric-card:nth-child(3) { animation-delay: 0.2s; }
+
+  .metric-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+  }
+
+  .metric-card.teal::before { background: var(--teal); border-color: rgba(61,219,161,0.2); }
+  .metric-card.blue::before { background: var(--blue); border-color: rgba(88,166,255,0.2); }
+  .metric-card.purple::before { background: var(--purple); }
+  .metric-card.orange::before { background: var(--orange); }
+  .metric-card.red::before { background: var(--red); }
+
+  .metric-card.teal { border-color: rgba(61,219,161,0.2); }
+  .metric-card.blue { border-color: rgba(88,166,255,0.2); }
+  .metric-card.purple { border-color: rgba(188,140,255,0.2); }
+  .metric-card.orange { border-color: rgba(255,159,28,0.2); }
+  .metric-card.red { border-color: rgba(255,107,107,0.2); }
+
+  .metric-icon {
+    font-size: 20px;
+    margin-bottom: 12px;
+    display: block;
+  }
+
+  .metric-value {
+    font-family: 'DM Serif Display', serif;
+    font-size: 42px;
+    line-height: 1;
+    margin-bottom: 6px;
+  }
+
+  .metric-card.teal .metric-value { color: var(--teal); }
+  .metric-card.blue .metric-value { color: var(--blue); }
+  .metric-card.purple .metric-value { color: var(--purple); }
+  .metric-card.orange .metric-value { color: var(--orange); }
+  .metric-card.red .metric-value { color: var(--red); }
+
+  .metric-label {
+    font-size: 12px;
+    color: var(--text-muted);
+    font-weight: 400;
+    letter-spacing: 0.3px;
+  }
+
+  .metric-sub {
+    font-size: 10px;
+    color: var(--text-faint);
+    font-family: 'DM Mono', monospace;
+    margin-top: 8px;
+  }
+
+  /* SECTION TITLE */
+  .section-title {
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    color: var(--text-muted);
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    margin-bottom: 14px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .section-title::before {
+    content: '';
+    width: 3px; height: 3px;
+    background: var(--teal);
+    border-radius: 50%;
+  }
+
+  /* TWO COLUMN LAYOUT */
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px; }
+  .three-col { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; margin-bottom: 24px; }
+
+  /* PANEL */
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 24px;
+    opacity: 0;
+    animation: fadeUp 0.5s forwards;
+  }
+
+  .panel.delay1 { animation-delay: 0.25s; }
+  .panel.delay2 { animation-delay: 0.3s; }
+  .panel.delay3 { animation-delay: 0.35s; }
+  .panel.delay4 { animation-delay: 0.4s; }
+
+  /* USERS LIST */
+  .user-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .user-row:last-child { border-bottom: none; }
+
+  .user-info { display: flex; align-items: center; gap: 10px; }
+
+  .user-avatar {
+    width: 34px; height: 34px;
+    border-radius: 10px;
+    background: var(--teal-dim);
+    border: 1px solid rgba(61,219,161,0.2);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px;
+    font-family: 'DM Mono', monospace;
+    color: var(--teal);
+    font-weight: 500;
+  }
+
+  .user-id {
+    font-family: 'DM Mono', monospace;
+    font-size: 12px;
+    color: var(--text);
+  }
+
+  .user-msgs {
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+
+  .msg-badge {
+    background: var(--teal-dim);
+    border: 1px solid rgba(61,219,161,0.2);
+    color: var(--teal);
+    font-size: 11px;
+    font-family: 'DM Mono', monospace;
+    padding: 3px 10px;
+    border-radius: 100px;
+  }
+
+  /* RISK BADGE */
+  .risk-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11px;
+    font-family: 'DM Mono', monospace;
+    padding: 4px 10px;
+    border-radius: 100px;
+    font-weight: 500;
+  }
+
+  .risk-badge.high { background: var(--red-dim); border: 1px solid rgba(255,107,107,0.3); color: var(--red); }
+  .risk-badge.medium { background: var(--orange-dim); border: 1px solid rgba(255,159,28,0.3); color: var(--orange); }
+  .risk-badge.low { background: var(--teal-dim); border: 1px solid rgba(61,219,161,0.2); color: var(--teal); }
+
+  /* RISK LIST */
+  .risk-row {
+    padding: 12px 0;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .risk-row:last-child { border-bottom: none; }
+
+  .risk-icon { font-size: 18px; flex-shrink: 0; margin-top: 2px; }
+
+  .risk-content { flex: 1; }
+
+  .risk-user {
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-bottom: 3px;
+  }
+
+  .risk-phrase {
+    font-size: 12px;
+    color: var(--text);
+    font-style: italic;
+    line-height: 1.5;
+  }
+
+  /* ACTIVITY BAR */
+  .activity-bars {
+    display: flex;
+    align-items: flex-end;
+    gap: 6px;
+    height: 80px;
+    margin-top: 8px;
+  }
+
+  .bar-wrap {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    height: 100%;
+    justify-content: flex-end;
+  }
+
+  .bar {
+    width: 100%;
+    background: var(--teal-dim);
+    border: 1px solid rgba(61,219,161,0.2);
+    border-radius: 4px 4px 0 0;
+    transition: height 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+    cursor: pointer;
+  }
+
+  .bar:hover { background: rgba(61,219,161,0.25); }
+
+  .bar-label {
+    font-family: 'DM Mono', monospace;
+    font-size: 9px;
+    color: var(--text-faint);
+    text-align: center;
+  }
+
+  .bar-val {
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    color: var(--teal);
+    text-align: center;
+  }
+
+  /* EMPTY STATE */
+  .empty {
+    text-align: center;
+    padding: 32px;
+    color: var(--text-faint);
+    font-size: 13px;
+    font-family: 'DM Mono', monospace;
+  }
+
+  /* HISTORY TABLE */
+  .history-item {
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+  }
+
+  .history-item:last-child { border-bottom: none; }
+
+  .history-role {
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+
+  .history-role.user { background: var(--blue-dim); color: var(--blue); border: 1px solid rgba(88,166,255,0.2); }
+  .history-role.assistant { background: var(--teal-dim); color: var(--teal); border: 1px solid rgba(61,219,161,0.2); }
+
+  .history-text {
+    font-size: 12px;
+    color: var(--text-muted);
+    line-height: 1.5;
+    flex: 1;
+  }
+
+  /* SELECTOR */
+  select {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font-family: 'DM Mono', monospace;
+    font-size: 12px;
+    padding: 6px 10px;
+    cursor: pointer;
+    outline: none;
+    margin-bottom: 14px;
+  }
+
+  select:focus { border-color: var(--teal); }
+
+  /* FOOTER */
+  footer {
+    text-align: center;
+    padding: 24px 0;
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    color: var(--text-faint);
+    border-top: 1px solid var(--border);
+    margin-top: 40px;
+  }
+
+  /* SKELETON */
+  .skeleton {
+    background: linear-gradient(90deg, var(--surface) 25%, var(--surface2) 50%, var(--surface) 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+    border-radius: 6px;
+    height: 16px;
+    margin-bottom: 8px;
+  }
+
+  @keyframes shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+
+  /* SCROLLBAR */
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  @media (max-width: 768px) {
+    .metrics-grid { grid-template-columns: 1fr 1fr; }
+    .two-col, .three-col { grid-template-columns: 1fr; }
+  }
+
+  @media (max-width: 480px) {
+    .metrics-grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <!-- HEADER -->
+  <header>
+    <div class="logo">
+      <div class="logo-icon">🧠</div>
+      <div class="logo-text">
+        <h1>PsicoPods</h1>
+        <span>Dashboard · Palimpsest</span>
+      </div>
+    </div>
+    <div class="header-right">
+      <div class="status-pill">
+        <div class="status-dot"></div>
+        ao vivo
+      </div>
+      <button class="refresh-btn" onclick="loadData()">↻ Atualizar</button>
+      <div class="last-update" id="lastUpdate">—</div>
+    </div>
+  </header>
+
+  <!-- ERROR -->
+  <div class="error-box" id="errorBox"></div>
+
+  <!-- LOADING -->
+  <div class="loading-screen" id="loadingScreen">
+    <div class="spinner"></div>
+    <div class="loading-text">Carregando dados do Supabase...</div>
+  </div>
+
+  <!-- MAIN CONTENT -->
+  <div id="mainContent" style="display:none">
+
+    <!-- METRICS ROW 1 -->
+    <div class="metrics-grid">
+      <div class="metric-card teal">
+        <span class="metric-icon">👥</span>
+        <div class="metric-value" id="totalUsers">—</div>
+        <div class="metric-label">Usuários totais</div>
+        <div class="metric-sub" id="subUsers">—</div>
+      </div>
+      <div class="metric-card blue">
+        <span class="metric-icon">💬</span>
+        <div class="metric-value" id="totalMsgs">—</div>
+        <div class="metric-label">Mensagens no histórico</div>
+        <div class="metric-sub" id="subMsgs">—</div>
+      </div>
+      <div class="metric-card purple">
+        <span class="metric-icon">📊</span>
+        <div class="metric-value" id="avgMsgs">—</div>
+        <div class="metric-label">Média por usuário</div>
+        <div class="metric-sub">mensagens por sessão acumulada</div>
+      </div>
+    </div>
+
+    <!-- METRICS ROW 2 -->
+    <div class="metrics-grid" style="margin-bottom:32px">
+      <div class="metric-card orange">
+        <span class="metric-icon">🔥</span>
+        <div class="metric-value" id="mostActive">—</div>
+        <div class="metric-label">Usuário mais ativo</div>
+        <div class="metric-sub" id="subActive">—</div>
+      </div>
+      <div class="metric-card red">
+        <span class="metric-icon">⚠️</span>
+        <div class="metric-value" id="riskCount">—</div>
+        <div class="metric-label">Alertas de risco</div>
+        <div class="metric-sub">palavras-chave detectadas</div>
+      </div>
+      <div class="metric-card teal">
+        <span class="metric-icon">📅</span>
+        <div class="metric-value" id="activeToday">—</div>
+        <div class="metric-label">Com histórico ativo</div>
+        <div class="metric-sub">usuários com conversas salvas</div>
+      </div>
+    </div>
+
+    <!-- USERS + RISK -->
+    <div class="two-col">
+
+      <!-- USERS LIST -->
+      <div class="panel delay1">
+        <div class="section-title">Usuários e Engajamento</div>
+        <div id="usersList"></div>
+      </div>
+
+      <!-- RISK ALERTS -->
+      <div class="panel delay2">
+        <div class="section-title">Alertas de Risco</div>
+        <div id="riskList"></div>
+      </div>
+
+    </div>
+
+    <!-- ACTIVITY + HISTORY -->
+    <div class="two-col">
+
+      <!-- ACTIVITY -->
+      <div class="panel delay3">
+        <div class="section-title">Distribuição de Mensagens</div>
+        <div class="activity-bars" id="activityBars"></div>
+      </div>
+
+      <!-- CONVERSATION VIEWER -->
+      <div class="panel delay4">
+        <div class="section-title">Visualizador de Conversa</div>
+        <select id="userSelect" onchange="loadConversation()">
+          <option value="">Selecionar usuário...</option>
+        </select>
+        <div id="conversationView"></div>
+      </div>
+
+    </div>
+
+  </div><!-- /mainContent -->
+
+  <footer>
+    PsicoPods · Palimpsest Startup · Amauri Trezza Martins
+  </footer>
+
+</div>
+
+<script>
+// ─── CONFIG ────────────────────────────────────────────────────────────────
+const SUPABASE_URL = 'https://chmwclrdixmfimlyaymu.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNobXdjbHJkaXhtZmltbHlheW11Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc0MDkwMTEsImV4cCI6MjA5Mjk4NTAxMX0.zFJvCDbuhezfgfCM8k3HKBwxDk2sfgHutNTq-DwyAE4';
+
+const RISK_WORDS = [
+  'suicídio','suicidio','me matar','quero morrer','não quero viver',
+  'nao quero viver','me machucar','acabar com tudo','sem saída','sem saida',
+  'desaparecer','depressão grave','depressao grave','automutilação',
+  'automutilacao','overdose','me machucar','dor demais','não aguento mais',
+  'nao aguento mais','me odeio','odeio minha vida'
+];
+
+const HEADERS = {
+  'apikey': SUPABASE_KEY,
+  'Authorization': 'Bearer ' + SUPABASE_KEY,
+  'Content-Type': 'application/json'
+};
+
+let allData = [];
+
+// ─── LOAD DATA ─────────────────────────────────────────────────────────────
+async function loadData() {
+  document.getElementById('loadingScreen').style.display = 'flex';
+  document.getElementById('mainContent').style.display = 'none';
+  document.getElementById('errorBox').style.display = 'none';
+
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/memoria?select=*`, { headers: HEADERS });
+    if (!res.ok) throw new Error(`HTTP ${res.status} — ${res.statusText}`);
+    const data = await res.json();
+    allData = data;
+    renderDashboard(data);
+    document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString('pt-BR');
+  } catch (err) {
+    showError(err.message);
+  } finally {
+    document.getElementById('loadingScreen').style.display = 'none';
+  }
 }
 
-def inicializar_banco():
-    logger.info("Banco OK")
-    logger.info("Banco inicializado com sucesso")
+function showError(msg) {
+  const box = document.getElementById('errorBox');
+  box.textContent = '⚠ Erro ao carregar dados: ' + msg;
+  box.style.display = 'block';
+  document.getElementById('mainContent').style.display = 'none';
+  document.getElementById('loadingScreen').style.display = 'none';
+}
 
-def carregar_historico(user_id):
-    try:
-        r = requests.get(
-            f"{SUPABASE_URL}/rest/v1/memoria?user_id=eq.{user_id}&select=historico",
-            headers=HEADERS
-        )
-        data = r.json()
-        if data:
-            return json.loads(data[0]["historico"])
-        return []
-    except Exception as e:
-        logger.error(f"Erro carregar: {e}")
-        return []
+// ─── RENDER ────────────────────────────────────────────────────────────────
+function renderDashboard(data) {
+  if (!data || data.length === 0) {
+    showError('Nenhum dado encontrado na tabela memoria.');
+    return;
+  }
 
-def salvar_historico(user_id, historico):
-    try:
-        requests.post(
-            f"{SUPABASE_URL}/rest/v1/memoria",
-            headers={**HEADERS, "Prefer": "resolution=merge-duplicates"},
-            json={"user_id": user_id, "historico": json.dumps(historico, ensure_ascii=False)}
-        )
-    except Exception as e:
-        logger.error(f"Erro salvar: {e}")
+  // Parse histories
+  const users = data.map(row => {
+    let msgs = [];
+    try { msgs = JSON.parse(row.historico || '[]'); } catch(e) {}
+    const userMsgs = msgs.filter(m => m.role === 'user');
+    const riskFound = findRisks(userMsgs);
+    return {
+      user_id: row.user_id,
+      updated_at: row.updated_at,
+      messages: msgs,
+      userMsgCount: userMsgs.length,
+      totalCount: msgs.length,
+      risks: riskFound
+    };
+  });
 
+  // Sort by message count
+  users.sort((a, b) => b.userMsgCount - a.userMsgCount);
 
-def limpar_historico(user_id):
-    try:
-        conn = conectar()
-        cur = conn.cursor()
-        cur.execute("DELETE FROM memoria WHERE user_id=%s", (user_id,))
-        conn.commit()
-        cur.close()
-        conn.close()
-    except Exception as e:
-        logger.error(f"Erro limpar: {e}")
+  const totalUsers = users.length;
+  const totalMsgs = users.reduce((s, u) => s + u.userMsgCount, 0);
+  const avgMsgs = totalUsers > 0 ? Math.round(totalMsgs / totalUsers) : 0;
+  const mostActive = users[0];
+  const riskUsers = users.filter(u => u.risks.length > 0);
+  const totalRisks = riskUsers.reduce((s, u) => s + u.risks.length, 0);
 
+  // Metrics
+  document.getElementById('totalUsers').textContent = totalUsers;
+  document.getElementById('subUsers').textContent = totalUsers === 1 ? '1 perfil registrado' : `${totalUsers} perfis registrados`;
+  document.getElementById('totalMsgs').textContent = totalMsgs;
+  document.getElementById('subMsgs').textContent = `${users.reduce((s,u) => s + u.totalCount, 0)} trocas totais (user + bot)`;
+  document.getElementById('avgMsgs').textContent = avgMsgs;
+  document.getElementById('riskCount').textContent = totalRisks;
+  document.getElementById('activeToday').textContent = totalUsers;
 
-async def start(update, context):
-    nome = update.effective_user.first_name or "você"
-    await update.message.reply_text(
-        f"Olá, {nome}! 💙\n\nEu sou o *PsicoPods*, um espaço de escuta criado pela *Palimpsest*.\n\nAqui você pode falar sobre o que está sentindo, no seu ritmo e do seu jeito.\n\nO que está passando pela sua cabeça agora?",
-        parse_mode="Markdown",
-    )
+  if (mostActive) {
+    const shortId = mostActive.user_id.toString().slice(-4);
+    document.getElementById('mostActive').textContent = '···' + shortId;
+    document.getElementById('subActive').textContent = `${mostActive.userMsgCount} mensagens enviadas`;
+  }
 
+  // Users list
+  const usersList = document.getElementById('usersList');
+  if (users.length === 0) {
+    usersList.innerHTML = '<div class="empty">Nenhum usuário encontrado</div>';
+  } else {
+    usersList.innerHTML = users.map((u, i) => {
+      const shortId = u.user_id.toString().slice(-4);
+      const initial = (i + 1).toString();
+      const pct = mostActive && mostActive.userMsgCount > 0
+        ? Math.round((u.userMsgCount / mostActive.userMsgCount) * 100) : 0;
+      return `
+        <div class="user-row">
+          <div class="user-info">
+            <div class="user-avatar">${initial}</div>
+            <div>
+              <div class="user-id">···${shortId}</div>
+              <div class="user-msgs">${u.userMsgCount} msgs enviadas · ${u.totalCount} trocas</div>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px">
+            ${u.risks.length > 0 ? '<span class="risk-badge high">⚠ risco</span>' : '<span class="risk-badge low">✓ ok</span>'}
+            <span class="msg-badge">${pct}%</span>
+          </div>
+        </div>`;
+    }).join('');
+  }
 
-async def relatorio(update, context):
-    user_id = str(update.effective_user.id)
-    msgs = carregar_historico(user_id)
-    if not msgs:
-        await update.message.reply_text("Ainda não temos histórico suficiente. Continue conversando e volte aqui depois. 💙")
-        return
-    du = [m for m in msgs if m["role"] == "user"]
-    await update.message.reply_text(
-        f"📊 *Resumo da sua jornada*\n\n🗓️ {data_hora_br()}\n💬 Trocas: {len(msgs) // 2}\n✍️ Suas mensagens: {len(du)}\n\nA Palimpsest agradece sua confiança. 💙",
-        parse_mode="Markdown",
-    )
+  // Risk alerts
+  const riskList = document.getElementById('riskList');
+  if (riskUsers.length === 0) {
+    riskList.innerHTML = '<div class="empty">✓ Nenhum alerta detectado</div>';
+  } else {
+    riskList.innerHTML = riskUsers.map(u => {
+      const shortId = u.user_id.toString().slice(-4);
+      return u.risks.map(r => `
+        <div class="risk-row">
+          <div class="risk-icon">🚨</div>
+          <div class="risk-content">
+            <div class="risk-user">Usuário ···${shortId}</div>
+            <div class="risk-phrase">"${r.text.substring(0, 80)}${r.text.length > 80 ? '...' : ''}"</div>
+            <div style="margin-top:6px">
+              <span class="risk-badge high">palavra: "${r.word}"</span>
+            </div>
+          </div>
+        </div>`).join('');
+    }).join('');
+  }
 
+  // Activity bars (messages per user)
+  const barsContainer = document.getElementById('activityBars');
+  const maxCount = Math.max(...users.map(u => u.userMsgCount), 1);
+  barsContainer.innerHTML = users.slice(0, 10).map((u, i) => {
+    const heightPct = Math.max((u.userMsgCount / maxCount) * 100, 4);
+    const shortId = u.user_id.toString().slice(-4);
+    return `
+      <div class="bar-wrap">
+        <div class="bar-val">${u.userMsgCount}</div>
+        <div class="bar" style="height:${heightPct}%" title="Usuário ···${shortId}: ${u.userMsgCount} msgs"></div>
+        <div class="bar-label">···${shortId}</div>
+      </div>`;
+  }).join('');
 
-async def limpar(update, context):
-    limpar_historico(str(update.effective_user.id))
-    await update.message.reply_text("Tudo bem. Começamos do zero. ✨\n\nO que você gostaria de compartilhar agora?")
+  // User select
+  const sel = document.getElementById('userSelect');
+  sel.innerHTML = '<option value="">Selecionar usuário...</option>' +
+    users.map((u, i) => {
+      const shortId = u.user_id.toString().slice(-4);
+      return `<option value="${i}">Usuário ${i+1} (···${shortId}) — ${u.userMsgCount} msgs</option>`;
+    }).join('');
 
+  document.getElementById('mainContent').style.display = 'block';
+  window._users = users;
+}
 
-async def ajuda(update, context):
-    await update.message.reply_text(
-        "📋 *Comandos:*\n\n/start — Reinicia\n/relatorio — Resumo\n/limpar — Apaga histórico\n/ajuda — Esta lista\n\nOu escreva o que está sentindo. 💙",
-        parse_mode="Markdown",
-    )
+function findRisks(userMsgs) {
+  const risks = [];
+  userMsgs.forEach(msg => {
+    const text = (msg.content || '').toLowerCase();
+    RISK_WORDS.forEach(word => {
+      if (text.includes(word.toLowerCase())) {
+        risks.push({ word, text: msg.content });
+      }
+    });
+  });
+  return risks;
+}
 
+function loadConversation() {
+  const idx = document.getElementById('userSelect').value;
+  const view = document.getElementById('conversationView');
+  if (idx === '' || !window._users) {
+    view.innerHTML = '';
+    return;
+  }
+  const user = window._users[parseInt(idx)];
+  if (!user || user.messages.length === 0) {
+    view.innerHTML = '<div class="empty">Sem mensagens registradas</div>';
+    return;
+  }
+  const last10 = user.messages.slice(-10);
+  view.innerHTML = last10.map(m => `
+    <div class="history-item">
+      <span class="history-role ${m.role}">${m.role === 'user' ? 'você' : 'bot'}</span>
+      <div class="history-text">${(m.content || '').substring(0, 120)}${(m.content||'').length > 120 ? '...' : ''}</div>
+    </div>`).join('');
+}
 
-async def responder(update, context):
-    user_id = str(update.effective_user.id)
-    texto = update.message.text.strip()
-    historico = carregar_historico(user_id)
-    if verificar_risco(texto):
-        historico.append({"role": "user", "content": texto})
-        historico.append({"role": "assistant", "content": RESPOSTA_RISCO})
-        salvar_historico(user_id, historico)
-        await update.message.reply_text(RESPOSTA_RISCO, parse_mode="Markdown")
-        return
-    historico.append({"role": "user", "content": texto})
-    if len(historico) > 20:
-        historico = historico[-20:]
-    system_prompt = f"{SYSTEM_PROMPT_BASE}\n\nData e hora atual em Brasília: {data_hora_br()}"
-    try:
-        resp = client.messages.create(
-            model="claude-sonnet-4-5",
-            max_tokens=300,
-            system=system_prompt,
-            messages=historico,
-        )
-        tr = resp.content[0].text
-        historico.append({"role": "assistant", "content": tr})
-        salvar_historico(user_id, historico)
-        await update.message.reply_text(tr)
-    except Exception as e:
-        logger.error(f"Erro API: {e}")
-        await update.message.reply_text("Estou com uma dificuldade técnica. Pode tentar em instantes? 🙏")
-
-
-def main():
-    try:
-        inicializar_banco()
-        logger.info("Banco inicializado com sucesso")
-    except Exception as e:
-        logger.error(f"Erro banco: {e}")
-    app = Application.builder().token(TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("relatorio", relatorio))
-    app.add_handler(CommandHandler("limpar", limpar))
-    app.add_handler(CommandHandler("ajuda", ajuda))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, responder))
-    if WEBHOOK_URL:
-        app.run_webhook(
-            listen="0.0.0.0", port=PORT, url_path=TOKEN,
-            webhook_url=f"{WEBHOOK_URL}/{TOKEN}",
-        )
-    else:
-        import time
-        time.sleep(10)
-        app.run_polling(drop_pending_updates=True)
-
-
-if __name__ == "__main__":
-    main()
+// ─── INIT ──────────────────────────────────────────────────────────────────
+loadData();
+setInterval(loadData, 60000); // auto-refresh a cada 1 minuto
+</script>
+</body>
+</html>
